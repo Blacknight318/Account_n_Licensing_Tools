@@ -34,18 +34,40 @@ function Initialize-AzureAD {
     }
     catch {
         Write-Error -Message "Failed to connect to AzureAD, check credentials and re-run script!"
+        exit 1
     }
 }
 
 
 # This is to make things easier to search AzureAD for Status and emailID
-function Search-AzureAD{
+function Find-AzureADMisfits{
     param(
-        
+
     )
-
+    # Starting with a full user list in memory to allow multiple searches without going back to the well
+    Write-Progress -Activity "Retrieving full list of users from AzureAD"
+    $full_user_list = Get-AzureADUser -All $true
+    $counter = 0
+    ForEach ($user in $full_user_list) {
+        $counter++
+        Write-Progress -Activity "Searching AzureAD for orphan accounts" -CurrentOperation $user.UserPrincipalName -PercentComplete (($counter / $full_user_list.count) * 100)
+        if (($user.UserType -eq "Member") -and ($user.AccountEnabled -eq $true) -and ($user.UserPrincipalName -like "*onmicrosoft.com")){
+            $writeItem = New-Object System.Object
+                $writeItem | Add-Member NoteProperty -Name "UserPrincipalName" -Value $user.UserPrincipalName
+                $writeItem | Add-Member NoteProperty -Name "UserType" -Value $user.UserType
+                $writeItem | Add-Member NoteProperty "AccountEnabled" -Value $user.AccountEnabled
+            Export-Csv -InputObject $writeItem -Append -Path misfit_users.csv
+        }
+    }
 }
-
 #Main code below
+# REMINDER to add check for existing connection to AzureAD and bypass function
 Initialize-AzureAD
+Find-AzureADMisfits
+Import-Csv -Path misfit_users.csv | Out-GridView
 
+<# Unused commands
+$active_info = Where-Object {$user.UserPrincipleName -like "*onmicrosoft.com" -and $user.UserType -eq "Member" -and $user.AccountEnabled -eq $true}
+$the_misfits = Select-Object -InputObject $active_default_accounts  -Property UserPrincipaleName, GivenName, Department, LastDirSyncTime, Mail, MailNickName, SignInNames
+Export-Csv -InputObject $the_misfits -Path misfits.csv
+#>
